@@ -38,10 +38,10 @@ pyinstaller VoiceToText_ctk.spec --noconfirm
 打包完成后，可执行文件位于 `dist/VoiceToText_CTK.exe`
 
 ## 使用说明
-
+`推荐模型：https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/tree/main`
 1. **选择文件夹**：点击 "Browse Folder" 选择包含 MP3 文件的文件夹
 2. **配置参数**：
-   - Model Size: tiny/base/small/medium/large/large-v2/large-v3（越大越准确，但越慢）
+   - Model Size: tiny/base/small/medium/large/large-v2/large-v3-turbo[这个模型对应的是faster-whisper-large-v3-turbo-ct2，也是默认的，建议先从上面的地址下载模型到本地]（越大越准确，但越慢），默认使用huggingface\hub\faster-whisper-large-v3-turbo-ct2
    - Device: cpu 或 cuda（需要 NVIDIA 显卡）
    - Compute Type: int8/int16/float16
    - Language: 选择源语言或 auto（自动检测）

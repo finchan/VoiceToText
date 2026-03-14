@@ -1,1 +1,1 @@
-COMPUTE_TYPE = "int16"
+COMPUTE_TYPE = "int8"
