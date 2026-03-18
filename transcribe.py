@@ -6,8 +6,12 @@ from typing import List, Dict, Any
 from faster_whisper import WhisperModel
 
 def get_model_path():
-    local_path = r"C:\Users\admin\.cache\huggingface\hub\faster-whisper-large-v3-turbo-ct2"
-    if os.path.exists(local_path): return local_path
+    # 动态获取当前用户的 .cache 路径
+    home = os.path.expanduser("~")
+    local_path = os.path.join(home, ".cache", "huggingface", "hub", "faster-whisper-large-v3-turbo-ct2")
+    
+    if os.path.exists(local_path): 
+        return local_path
     return "deepdml/faster-whisper-large-v3-turbo-ct2"
 
 class Transcriber:

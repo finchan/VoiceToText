@@ -51,9 +51,9 @@ def process_json_with_role_list(input_json_str, names_list):
 
 
 # 直接从文件读取，不会有粘贴导致的格式问题
-with open(r'E:\Practice\JapaneseVoice\resources\日语综合教程第一册\第04課　新学期の始まり\04-会話-2.json', 'r', encoding='utf-8') as f:
+with open(r'C:\PROJECTS\JapaneseVoice\resources\日语综合教程第一册\第05課　綺麗な所\05-会話-3.json', 'r', encoding='utf-8') as f:
     original_json_data = f.read()
-speaker_order = ["林", "李", "林", "李", "林", "李", "林", "陸", "林", "陸", "林", "李、陸"]
+speaker_order = ["山田", "朱", "山田", "朱", "山田", "朱", "山田", "朱", "山田", "朱", "山田", "朱", "山田", "朱", "山田"]
 
 result = process_json_with_role_list(original_json_data, speaker_order)
 print(result)
