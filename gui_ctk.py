@@ -1,224 +1,129 @@
 import os
-import sys
 import threading
-import traceback
+import multiprocessing
 from pathlib import Path
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-
-# --- Environment Fixes for Stability ---
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["QT_QPA_PLATFORM"] = "windows" # Just in case any other lib tries to use Qt
-
 from transcribe import Transcriber
 
-# Options
-LANGUAGE_OPTIONS = ["ja", "auto", "en", "ms", "id", "vi", "th", "ru"]
-MODEL_SIZE_OPTIONS = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3", "large-v3-turbo"]
-DEVICE_OPTIONS = ["cpu", "cuda"]
-COMPUTE_TYPE_OPTIONS = ["int8", "int16", "float16"]
+LANG_MAP = {"日语 (ja)": "ja", "自动识别 (auto)": "auto", "中文 (zh)": "zh", "英语 (en)": "en"}
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
+        self.title("Whisper 教材精调工具 - 解决丢字/幻觉")
+        self.geometry("900x880")
 
-        self.title("VoiceToText - Whisper Transcription (Modern)")
-        self.geometry("700x600")
+        # --- 1. 性能设置 ---
+        self.perf_frame = ctk.CTkFrame(self)
+        self.perf_frame.pack(fill="x", padx=20, pady=10)
+        ctk.CTkLabel(self.perf_frame, text="核数:").pack(side="left", padx=5)
+        self.cpu_spin = ctk.CTkEntry(self.perf_frame, width=50)
+        self.cpu_spin.insert(0, str(multiprocessing.cpu_count()))
+        self.cpu_spin.pack(side="left", padx=5)
+        self.device_var = ctk.StringVar(value="cpu")
+        ctk.CTkOptionMenu(self.perf_frame, values=["cpu", "cuda"], variable=self.device_var, width=80).pack(side="left", padx=10)
+
+        # --- 2. 核心调试参数 (改用 CTkFrame 替代 CTkLabelFrame) ---
+        self.debug_outer = ctk.CTkFrame(self)
+        self.debug_outer.pack(fill="x", padx=20, pady=10)
+        ctk.CTkLabel(self.debug_outer, text="—— 深度调试参数 (针对教材优化) ——", font=("Arial", 13, "bold")).pack(pady=5)
+
+        # 第一行：断句 Gap 与 VAD 开关
+        row1 = ctk.CTkFrame(self.debug_outer, fg_color="transparent")
+        row1.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(row1, text="断句间隙 (Gap 秒):").pack(side="left", padx=5)
+        self.gap_val = ctk.CTkEntry(row1, width=60)
+        self.gap_val.insert(0, "2.5") 
+        self.gap_val.pack(side="left", padx=5)
         
-        # Appearance
-        ctk.set_appearance_mode("System")
-        ctk.set_default_color_theme("blue")
+        self.vad_enabled = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(row1, text="启用 VAD (易丢开头)", variable=self.vad_enabled).pack(side="left", padx=20)
 
-        # Layout
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(5, weight=1)
+        # 第二行：VAD 细节控制 (增加静音时长)
+        row2 = ctk.CTkFrame(self.debug_outer, fg_color="transparent")
+        row2.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(row2, text="VAD 静音时长 (ms):").pack(side="left", padx=5)
+        self.vad_ms = ctk.CTkEntry(row2, width=80)
+        self.vad_ms.insert(0, "3000") # 教材建议设为 3 秒
+        self.vad_ms.pack(side="left", padx=5)
+        ctk.CTkLabel(row2, text="（仅启用VAD时生效）", font=("Arial", 11), text_color="gray").pack(side="left", padx=5)
 
-        # 1. Configuration Frame
-        self.config_frame = ctk.CTkFrame(self)
-        self.config_frame.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
-        self.config_frame.grid_columnconfigure((1, 3), weight=1)
-
-        ctk.CTkLabel(self.config_frame, text="Model Size:").grid(row=0, column=0, padx=10, pady=5)
-        self.model_combo = ctk.CTkComboBox(self.config_frame, values=MODEL_SIZE_OPTIONS)
-        self.model_combo.set("large-v3-turbo")
-        self.model_combo.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self.config_frame, text="Device:").grid(row=0, column=2, padx=10, pady=5)
-        self.device_combo = ctk.CTkComboBox(self.config_frame, values=DEVICE_OPTIONS)
-        self.device_combo.set("cpu")
-        self.device_combo.grid(row=0, column=3, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self.config_frame, text="Compute Type:").grid(row=1, column=0, padx=10, pady=5)
-        self.compute_combo = ctk.CTkComboBox(self.config_frame, values=COMPUTE_TYPE_OPTIONS)
-        self.compute_combo.set("int8")
-        self.compute_combo.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self.config_frame, text="Language:").grid(row=1, column=2, padx=10, pady=5)
-        self.lang_combo = ctk.CTkComboBox(self.config_frame, values=LANGUAGE_OPTIONS)
-        self.lang_combo.set("ja")
-        self.lang_combo.grid(row=1, column=3, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self.config_frame, text="Beam Size:").grid(row=2, column=0, padx=10, pady=5)
-        self.beam_spin = ctk.CTkEntry(self.config_frame)
-        self.beam_spin.insert(0, "5")
-        self.beam_spin.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
-
-        # Audio Preprocessing Options Frame
-        self.audio_frame = ctk.CTkFrame(self)
-        self.audio_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
+        # 第三行：防幻觉与推理
+        row3 = ctk.CTkFrame(self.debug_outer, fg_color="transparent")
+        row3.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(row3, text="无声阈值 (0.6):").pack(side="left", padx=5)
+        self.no_speech_val = ctk.CTkEntry(row3, width=60)
+        self.no_speech_val.insert(0, "0.6")
+        self.no_speech_val.pack(side="left", padx=5)
         
-        ctk.CTkLabel(self.audio_frame, text="Audio Preprocessing (Optional):").pack(anchor="w", padx=10, pady=(5, 0))
-        
-        self.normalize_var = ctk.BooleanVar(value=False)
-        self.normalize_check = ctk.CTkCheckBox(self.audio_frame, text="Normalize Volume (提高音量)", variable=self.normalize_var)
-        self.normalize_check.pack(anchor="w", padx=20, pady=2)
-        
-        self.denoise_var = ctk.BooleanVar(value=False)
-        self.denoise_check = ctk.CTkCheckBox(self.audio_frame, text="Noise Reduction (降噪)", variable=self.denoise_var)
-        self.denoise_check.pack(anchor="w", padx=20, pady=2)
-        
-        self.highpass_var = ctk.BooleanVar(value=False)
-        self.highpass_check = ctk.CTkCheckBox(self.audio_frame, text="High-Pass Filter (去除低频噪音)", variable=self.highpass_var)
-        self.highpass_check.pack(anchor="w", padx=20, pady=2)
+        ctk.CTkLabel(row3, text="推理深度 (Beam):").pack(side="left", padx=20)
+        self.beam_val = ctk.CTkEntry(row3, width=60)
+        self.beam_val.insert(0, "7")
+        self.beam_val.pack(side="left", padx=5)
 
-        # 2. File Selection Frame
-        self.file_frame = ctk.CTkFrame(self)
-        self.file_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
-        self.file_frame.grid_columnconfigure(0, weight=1)
+        # --- 3. 业务设置 ---
+        self.biz_frame = ctk.CTkFrame(self)
+        self.biz_frame.pack(fill="x", padx=20, pady=10)
+        self.lang_var = ctk.StringVar(value="日语 (ja)")
+        ctk.CTkOptionMenu(self.biz_frame, values=list(LANG_MAP.keys()), variable=self.lang_var).pack(side="left", padx=10)
+        self.prompt_entry = ctk.CTkEntry(self.biz_frame, placeholder_text="起始提示词 (Initial Prompt)...", width=400)
+        self.prompt_entry.pack(side="left", padx=10, fill="x", expand=True)
 
-        self.file_entry = ctk.CTkEntry(self.file_frame, placeholder_text="Select a folder containing MP3 files...")
-        self.file_entry.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="ew")
-        
-        self.browse_btn = ctk.CTkButton(self.file_frame, text="Browse Folder", width=120, command=self.browse_file)
-        self.browse_btn.grid(row=0, column=1, padx=(5, 10), pady=10)
+        # --- 4. 操作区 ---
+        self.btn_frame = ctk.CTkFrame(self)
+        self.btn_frame.pack(fill="x", padx=20, pady=10)
+        ctk.CTkButton(self.btn_frame, text="📁 选取音频", command=self.select_files).pack(side="left", padx=10)
+        self.start_btn = ctk.CTkButton(self.btn_frame, text="🚀 开始解析", fg_color="#1f538d", command=self.start_transcription)
+        self.start_btn.pack(side="right", padx=10)
 
-        # 3. Action Frame
-        self.start_btn = ctk.CTkButton(self, text="Start Transcription", height=40, command=self.start_task)
-        self.start_btn.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.log_text = ctk.CTkTextbox(self, height=300)
+        self.log_text.pack(fill="both", expand=True, padx=20, pady=10)
+        self.selected_files = []
 
-        self.progress_bar = ctk.CTkProgressBar(self)
-        self.progress_bar.set(0)
-        self.progress_bar.grid(row=4, column=0, padx=20, pady=5, sticky="ew")
-
-        # 4. Log Area
-        self.log_text = ctk.CTkTextbox(self)
-        self.log_text.grid(row=5, column=0, padx=20, pady=10, sticky="nsew")
-
-    def browse_file(self):
-        folder_path = filedialog.askdirectory(title="Select folder containing MP3 files")
-        if folder_path:
-            self.file_entry.delete(0, "end")
-            self.file_entry.insert(0, folder_path)
+    def select_files(self):
+        files = filedialog.askopenfilenames(filetypes=[("Audio", "*.mp3 *.wav *.m4a")])
+        if files:
+            self.selected_files = [Path(f) for f in files]
+            self.log(f"已选取: {len(self.selected_files)} 个音频")
 
     def log(self, message):
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
 
-    def start_task(self):
-        folder_path = self.file_entry.get().strip()
-        if not folder_path or not Path(folder_path).exists():
-            messagebox.showwarning("Warning", "Please select a valid folder!")
-            return
-
+    def start_transcription(self):
+        if not self.selected_files: return
         self.start_btn.configure(state="disabled")
-        self.progress_bar.set(0)
-        self.log_text.delete("1.0", "end")
-        self.log("Scanning folder for MP3 files...")
-
-        # Find all MP3 files in folder
-        mp3_files = list(Path(folder_path).glob("*.mp3"))
-        
-        if not mp3_files:
-            messagebox.showwarning("Warning", "No MP3 files found in the selected folder!")
-            self.start_btn.configure(state="normal")
-            return
-
-        self.log(f"Found {len(mp3_files)} MP3 file(s)")
-
-        # Gather params
-        params = {
-            "model_size": self.model_combo.get(),
-            "device": self.device_combo.get(),
-            "compute_type": self.compute_combo.get(),
-            "language": self.lang_combo.get(),
-            "beam_size": int(self.beam_spin.get()),
-            "normalize": self.normalize_var.get(),
-            "denoise": self.denoise_var.get(),
-            "highpass": self.highpass_var.get()
-        }
-
-        # Run in thread
-        threading.Thread(target=self.run_batch_transcription, args=(folder_path, mp3_files, params), daemon=True).start()
-
-    def run_batch_transcription(self, folder_path, mp3_files, params):
-        total = len(mp3_files)
-        success_count = 0
-        skip_count = 0
-        error_count = 0
-        
         try:
-            self.log(f"Initializing model: {params['model_size']} ({params['device']})...")
-            
-            transcriber = Transcriber(
-                model_size=params['model_size'],
-                device=params['device'],
-                compute_type=params['compute_type'],
-                language=params['language'],
-                beam_size=params['beam_size']
-            )
-
-            for idx, mp3_file in enumerate(mp3_files, 1):
-                json_file = mp3_file.with_suffix('.json')
-                
-                # Skip if JSON already exists
-                if json_file.exists():
-                    self.log(f"[{idx}/{total}] SKIP: {mp3_file.name} (JSON already exists)")
-                    skip_count += 1
-                    continue
-
-                audio_opts = ""
-                if params.get("normalize"):
-                    audio_opts += " +normalize"
-                if params.get("denoise"):
-                    audio_opts += " +denoise"
-                if params.get("highpass"):
-                    audio_opts += " +highpass"
-                
-                if audio_opts:
-                    self.log(f"[{idx}/{total}] Processing: {mp3_file.name} [Audio:{audio_opts}]...")
-                else:
-                    self.log(f"[{idx}/{total}] Processing: {mp3_file.name}...")
-                
-                try:
-                    result = transcriber.transcribe(
-                        str(mp3_file),
-                        normalize=params.get("normalize", False),
-                        denoise=params.get("denoise", False),
-                        highpass=params.get("highpass", False)
-                    )
-                    self.log(f"[{idx}/{total}] SUCCESS: {mp3_file.name} -> {result['output_path']}")
-                    success_count += 1
-                except Exception as e:
-                    self.log(f"[{idx}/{total}] FAILED: {mp3_file.name} - {str(e)}")
-                    error_count += 1
-
-                # Update progress
-                progress = idx / total
-                self.after(0, lambda p=progress: self.progress_bar.set(p))
-
-            # All done
-            summary = f"Complete!\n\nTotal: {total}\nSuccess: {success_count}\nSkipped: {skip_count}\nFailed: {error_count}"
-            self.log("\n" + summary)
-            self.after(0, lambda: messagebox.showinfo("Batch Transcription Complete", summary))
-
+            options = {
+                "language": LANG_MAP[self.lang_var.get()],
+                "initial_prompt": self.prompt_entry.get(),
+                "vad_filter": self.vad_enabled.get(),
+                "min_silence_ms": int(self.vad_ms.get()),
+                "gap_threshold": float(self.gap_val.get()),
+                "no_speech_threshold": float(self.no_speech_val.get()),
+                "beam_size": int(self.beam_val.get()),
+                "cpu_threads": int(self.cpu_spin.get()),
+                "device": self.device_var.get(),
+                "compression_threshold": 2.4 # 内部固定
+            }
+            threading.Thread(target=self.run_process, args=(options,), daemon=True).start()
         except Exception as e:
-            err_msg = traceback.format_exc()
-            self.log(f"ERROR: {err_msg}")
-            self.after(0, lambda: messagebox.showerror("Error", f"Batch transcription failed:\n{str(e)}"))
-        
+            self.log(f"参数错误: {e}")
+            self.start_btn.configure(state="normal")
+
+    def run_process(self, options):
+        try:
+            ts = Transcriber(device=options["device"], cpu_threads=options["cpu_threads"])
+            for f in self.selected_files:
+                self.log(f"正在处理: {f.name}...")
+                ts.transcribe(str(f), options)
+                self.log(f"✅ 完成: {f.stem}.json")
+            messagebox.showinfo("完成", "任务处理完毕")
+        except Exception as e:
+            self.log(f"❌ 运行错误: {str(e)}")
         finally:
-            self.after(0, lambda: self.start_btn.configure(state="normal"))
+            self.start_btn.configure(state="normal")
 
 if __name__ == "__main__":
     app = App()
