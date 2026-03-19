@@ -19,7 +19,7 @@ class App(ctk.CTk):
         self.perf_frame.pack(fill="x", padx=20, pady=10)
         ctk.CTkLabel(self.perf_frame, text="核数:").pack(side="left", padx=5)
         self.cpu_spin = ctk.CTkEntry(self.perf_frame, width=50)
-        self.cpu_spin.insert(0, str(multiprocessing.cpu_count()))
+        self.cpu_spin.insert(0, "4")
         self.cpu_spin.pack(side="left", padx=5)
         self.device_var = ctk.StringVar(value="cpu")
         ctk.CTkOptionMenu(self.perf_frame, values=["cpu", "cuda"], variable=self.device_var, width=80).pack(side="left", padx=10)
@@ -34,11 +34,15 @@ class App(ctk.CTk):
         row1.pack(fill="x", padx=10, pady=5)
         ctk.CTkLabel(row1, text="断句间隙 (Gap 秒):").pack(side="left", padx=5)
         self.gap_val = ctk.CTkEntry(row1, width=60)
-        self.gap_val.insert(0, "2.5") 
+        self.gap_val.insert(0, "0.7") 
         self.gap_val.pack(side="left", padx=5)
         
+        def toggle_vad_settings():
+            state = "normal" if self.vad_enabled.get() else "disabled"
+            self.vad_ms.configure(state=state)
+
         self.vad_enabled = ctk.BooleanVar(value=False)
-        ctk.CTkSwitch(row1, text="启用 VAD (易丢开头)", variable=self.vad_enabled).pack(side="left", padx=20)
+        ctk.CTkSwitch(row1, text="启用 VAD (易丢开头)", variable=self.vad_enabled, command=toggle_vad_settings).pack(side="left", padx=20)
 
         # 第二行：VAD 细节控制 (增加静音时长)
         row2 = ctk.CTkFrame(self.debug_outer, fg_color="transparent")
@@ -46,8 +50,9 @@ class App(ctk.CTk):
         ctk.CTkLabel(row2, text="VAD 静音时长 (ms):").pack(side="left", padx=5)
         self.vad_ms = ctk.CTkEntry(row2, width=80)
         self.vad_ms.insert(0, "3000") # 教材建议设为 3 秒
+        self.vad_ms.configure(state="disabled")
         self.vad_ms.pack(side="left", padx=5)
-        ctk.CTkLabel(row2, text="（仅启用VAD时生效）", font=("Arial", 11), text_color="gray").pack(side="left", padx=5)
+        ctk.CTkLabel(row2, text="（已绑定：仅启用VAD时生效并可编辑）", font=("Arial", 11), text_color="gray").pack(side="left", padx=5)
 
         # 第三行：防幻觉与推理
         row3 = ctk.CTkFrame(self.debug_outer, fg_color="transparent")
