@@ -22,7 +22,24 @@ class Transcriber:
 
     def transcribe(self, audio_path: str, options: Dict[str, Any]) -> Dict[str, Any]:
         output_path = str(Path(audio_path).with_suffix(".json"))
+        results = self._perform_transcription(audio_path, options)
         
+        self._save_json(results, output_path)
+        return {"results": results, "output_path": output_path}
+
+    def transcribe_text_only(self, audio_path: str, options: Dict[str, Any]) -> Dict[str, Any]:
+        output_path = str(Path(audio_path).with_suffix(".json"))
+        results = self._perform_transcription(audio_path, options)
+        
+        # 移除单词级别的信息，只保留句子级别
+        for entry in results:
+            if "words" in entry:
+                del entry["words"]
+                
+        self._save_json(results, output_path)
+        return {"results": results, "output_path": output_path}
+
+    def _perform_transcription(self, audio_path: str, options: Dict[str, Any]) -> List[Dict[str, Any]]:
         segments, _ = self.model.transcribe(
             audio_path,
             language=options.get("language", "ja"),
@@ -52,9 +69,7 @@ class Transcriber:
                 current_line_words.append({"word": w.word, "start": round(w.start, 2), "end": round(w.end, 2)})
             if current_line_words:
                 results.append(self._build_line(current_line_words))
-
-        self._save_json(results, output_path)
-        return {"results": results, "output_path": output_path}
+        return results
 
     def _build_line(self, words_list: List[Dict]) -> Dict:
         return {

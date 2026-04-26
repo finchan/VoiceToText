@@ -72,8 +72,10 @@ class App(ctk.CTk):
         self.biz_frame.pack(fill="x", padx=20, pady=10)
         self.lang_var = ctk.StringVar(value="日语 (ja)")
         ctk.CTkOptionMenu(self.biz_frame, values=list(LANG_MAP.keys()), variable=self.lang_var).pack(side="left", padx=10)
-        self.prompt_entry = ctk.CTkEntry(self.biz_frame, placeholder_text="起始提示词 (Initial Prompt)...", width=400)
+        self.prompt_entry = ctk.CTkEntry(self.biz_frame, placeholder_text="起始提示词 (Initial Prompt)...", width=300)
         self.prompt_entry.pack(side="left", padx=10, fill="x", expand=True)
+        self.sentence_only_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(self.biz_frame, text="仅句子级", variable=self.sentence_only_var).pack(side="left", padx=10)
 
         # --- 4. 操作区 ---
         self.btn_frame = ctk.CTkFrame(self)
@@ -110,6 +112,7 @@ class App(ctk.CTk):
                 "beam_size": int(self.beam_val.get()),
                 "cpu_threads": int(self.cpu_spin.get()),
                 "device": self.device_var.get(),
+                "sentence_only": self.sentence_only_var.get(),
                 "compression_threshold": 2.4 # 内部固定
             }
             threading.Thread(target=self.run_process, args=(options,), daemon=True).start()
@@ -122,7 +125,10 @@ class App(ctk.CTk):
             ts = Transcriber(device=options["device"], cpu_threads=options["cpu_threads"])
             for f in self.selected_files:
                 self.log(f"正在处理: {f.name}...")
-                ts.transcribe(str(f), options)
+                if options.get("sentence_only"):
+                    ts.transcribe_text_only(str(f), options)
+                else:
+                    ts.transcribe(str(f), options)
                 self.log(f"✅ 完成: {f.stem}.json")
             messagebox.showinfo("完成", "任务处理完毕")
         except Exception as e:
